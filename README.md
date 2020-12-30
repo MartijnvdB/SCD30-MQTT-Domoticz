@@ -2,6 +2,7 @@
 
 # Introduction #
 
-This project is written for the ESP8266 using the Arduino IDE. When finished it will measure environmental data (CO2, humidity, temperature) from an Seeedstudio SCD30 sensor to Mosquitto MQTT for storage and display in Domoticz.
+This project is written for the ESP8266 using the Arduino IDE.
 
+The ESP8266 reads environmental data (CO2 concentration, relative humidity, temperature) from an SCD30 sensor (using the Seeedstudio SCD30 library) and sends it to Mosquitto MQTT over WiFi for storage and display in Domoticz.
 

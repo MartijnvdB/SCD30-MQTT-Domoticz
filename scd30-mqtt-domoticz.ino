@@ -1,13 +1,19 @@
 /*
-   Name:      S_SCD30-async-domoticz
-   Purpose:   Publishing Seedstudio S_SCD30 environmental data asynchronously to Domoticz over MQTT.
-              Uses SCD30 library from Seedstudio.
+   Name:      scd30-mqtt-domoticz
+   Git:       https://github.com/MartijnvdB/SCD30-MQTT-Domoticz
+   Purpose:   Publishing Seedstudio SCD30 environmental data to Domoticz over MQTT.
+              Uses the SCD30 library from Seedstudio.
 
               - values are read periodically from the SCD30
               - stored in a JSON object, with an identifier that matches the 'virtual hardware' device in Domoticz
               - values are published on an MQTT queue over WiFi
 
               Requires that the applications has some knowledge of the device ID in Domoticz.
+
+              Uses custom logging library that, for now logs to the Serial console. Logging can be configured on 
+              a 'subsystem' level by setting the log level, like so:
+              logger.SetLogLevel(S_SCD30, LOG_TRACE);
+
 
               ESP8266 pinout:
               SPI CL: D1
@@ -16,7 +22,6 @@
    Author:    Martijn van den Burg
    Device:    ESP8266
    Date:      Dec 2020
-   Changes:
 */
 
 
@@ -219,7 +224,7 @@ void readSensor() {
     carb["idx"] = IDX_DEVICE_CO2;
     carb["nvalue"] = (uint16_t)result[0];
     serializeJson(carb, jsonoutput);
-    
+
     logger.Log(S_SCD30, LOG_TRACE, jsonoutput);
 
     publishData(jsonoutput);
