@@ -10,7 +10,7 @@
 
               Requires that the applications has some knowledge of the device ID in Domoticz.
 
-              Uses custom logging library that, for now logs to the Serial console. Logging can be configured on 
+              Uses custom logging library that, for now logs to the Serial console. Logging can be configured on
               a 'subsystem' level by setting the log level, like so:
               logger.SetLogLevel(S_SCD30, LOG_TRACE);
 
@@ -68,6 +68,12 @@ extern "C" {
 struct appConfig {
   const uint32_t pollTime_millis = 10000; // poll interval SCD30 sensor
   uint32_t previous_poll = 0;             // most recent poll time
+
+  // These are used to not send data when the values haven't changed.
+  uint16_t previous_co2 = 0;
+  float previous_humidity = 0.0;
+  float previous_temperature = 0.0;
+
 } app;
 
 
@@ -87,8 +93,8 @@ void setup() {
   logger.LogGlobalOn();
 
   // Set log levels for individual subsystems
-  logger.SetLogLevel(S_SCD30, LOG_TRACE);
-  logger.SetLogLevel(S_PUBLISHER, LOG_TRACE);
+  logger.SetLogLevel(S_SCD30, LOG_INFO);
+  logger.SetLogLevel(S_PUBLISHER, LOG_ERROR);
   logger.SetLogLevel(S_WIFI, LOG_INFO);
 
   // Connect to WiFi
@@ -195,11 +201,16 @@ void readSensor() {
     logger.Log(S_SCD30, LOG_TRACE, "SCD30 sensor is available.\n");
     scd30.getCarbonDioxideConcentration(result);
 
-    sprintf(buffer, "CO2 concentration: %.0f ppm\n", result[0]);
+    // Store values after rounding off to one decimal
+    uint16_t cur_co2 = (uint16_t)result[0];
+    float cur_temp = round(result[1]);
+    float cur_humidity = round(result[2]);
+
+    sprintf(buffer, "CO2 concentration: %d ppm\n", cur_co2);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
-    sprintf(buffer, "Temperature: %.1f ℃\n", result[1]);
+    sprintf(buffer, "Temperature: %.1f ℃\n", cur_temp);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
-    sprintf(buffer, "Humidity: %.0f %%\n", result[2]);
+    sprintf(buffer, "Humidity: %.0f %%\n", cur_humidity);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
 
     /* We need to publish two objects because of the hardware settings in the Domoticz version:
@@ -208,26 +219,43 @@ void readSensor() {
     */
     logger.Log(S_SCD30, LOG_TRACE, "Serializing SCD30 sensor data to JSON.\n");
 
-    thum["name"] = "SCD30 Temp en Vocht";
-    thum["idx"] = IDX_DEVICE_TEMPHUM;
-    thum["nvalue"] = 0;
-    sprintf(buffer, "%.1f;%.0f;1", result[1], result[2]);
-    thum["svalue"].set(buffer); // does not work with '=' assignment...
-    serializeJson(thum, jsonoutput);
+    // Check if data hase changed since last
+    if ( cur_temp != app.previous_temperature || cur_humidity != app.previous_humidity) {
+      app.previous_temperature = cur_temp;
+      app.previous_humidity = cur_humidity;
 
-    logger.Log(S_SCD30, LOG_TRACE, jsonoutput);
+      thum["name"] = "SCD30 Temp en Vocht";
+      thum["idx"] = IDX_DEVICE_TEMPHUM;
+      thum["nvalue"] = 0;
+      //      sprintf(buffer, "%.1f;%.0f;1", result[1], result[2]);
+      sprintf(buffer, "%.1f;%.0f;1", cur_temp, cur_humidity);
+      thum["svalue"].set(buffer); // does not work with '=' assignment...
+      serializeJson(thum, jsonoutput);
 
-    publishData(jsonoutput);
+      logger.Log(S_SCD30, LOG_TRACE, jsonoutput);
+      logger.Log(S_SCD30, LOG_TRACE, "\n");
 
+      publishData(jsonoutput);
+    }
+    else {
+      logger.Log(S_SCD30, LOG_TRACE, "Temperature and humidity have not changed since last update. Not sending to Domoticz.\n");
+    }
 
-    carb["name"] = "SCD30 CO2";
-    carb["idx"] = IDX_DEVICE_CO2;
-    carb["nvalue"] = (uint16_t)result[0];
-    serializeJson(carb, jsonoutput);
+    if (cur_co2 != app.previous_co2) {
+      app.previous_co2 = cur_co2;
+      carb["name"] = "SCD30 CO2";
+      carb["idx"] = IDX_DEVICE_CO2;
+      carb["nvalue"] = cur_co2;
+      serializeJson(carb, jsonoutput);
 
-    logger.Log(S_SCD30, LOG_TRACE, jsonoutput);
+      logger.Log(S_SCD30, LOG_TRACE, jsonoutput);
+      logger.Log(S_SCD30, LOG_TRACE, "\n");
 
-    publishData(jsonoutput);
+      publishData(jsonoutput);
+    }
+    else {
+      logger.Log(S_SCD30, LOG_TRACE, "CO2 concentration has not changed since last update. Not sending to Domoticz.\n");
+    }
 
   }
   else {
@@ -257,3 +285,19 @@ void publishData(char* msg) {
   logger.Log(S_PUBLISHER, LOG_TRACE, "Done publishing data to MQTT.\n");
 
 } // publishData
+
+
+
+/* Round of floats to 1 decimal
+   37.66666 * 10 = 376.666
+   376.666 + 0.5 = 377.116    for rounding off value
+   then type cast to int so value is 377
+   then divided by 10 so the value converted into 37.7
+*/
+float round(float var) {
+  float value = (int)(var * 10 + 0.5);
+  return (float)value / 10;
+}
+
+
+/* END */
