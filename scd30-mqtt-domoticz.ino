@@ -7,8 +7,15 @@
               - values are read periodically from the SCD30
               - stored in a JSON object, with an identifier that matches the 'virtual hardware' device in Domoticz
               - values are published on an MQTT queue over WiFi
+              - values are also displayed on a small OLED, together with:
+                - MQTT connection status
+                - WiFi connection status
+                - NTP time
 
-              Requires that the applications has some knowledge of the device ID in Domoticz.
+              Requires that the applications has some knowledge of the device ID in Domoticz, this is configured
+              in credentials.h.
+
+              Custom OLED graphics defined in graphics.h.
 
               Uses custom logging library that, for now logs to the Serial console. Logging can be configured on
               a 'subsystem' level by setting the log level, like so:
@@ -21,7 +28,7 @@
 
    Author:    Martijn van den Burg
    Device:    ESP8266
-   Date:      Dec 2020
+   Date:      Dec 2020/Jan 2021
 */
 
 
@@ -41,12 +48,23 @@ extern "C" {
 // Subfolder structure requires Arduino IDE 1.6.10 or up
 #include "src/hardware.h"
 #include "src/credentials.h"
+#include "src/graphics.h"
 #include "src/Logging/Logging.h"
 
 
 #include "SCD30.h"  // Seeedstudio library
 #include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
+
+// For NTP time
+#include "src/DateTime/DateTime.h"
+#include <ezTime.h>   // https://github.com/ropg/ezTime
+
+// 128x64 OLED library
+// SSD1306 by Alex Dynda, https://github.com/lexus2k/ssd1306
+#include <nano_gfx.h>
+#include <ssd1306.h>
+
 #include <PubSubClient.h>
 #include <Wire.h>
 
@@ -63,6 +81,9 @@ extern "C" {
 #define LOG_WARN       3
 #define LOG_ERROR      4
 
+#define SECOND_TO_MILLIS 1000
+
+
 
 // Struct to contain all application 'global' variables.
 struct appConfig {
@@ -73,6 +94,11 @@ struct appConfig {
   uint16_t previous_co2 = 0;
   float previous_humidity = 0.0;
   float previous_temperature = 0.0;
+
+  // For NTP time
+  uint32_t previous_timestamp = millis();
+  char timeCast[9];
+
 
 } app;
 
@@ -88,6 +114,14 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 
+// Set the NTP timezone
+Timezone AMS;
+
+
+// For OLED display
+SPRITE wifisprite;
+
+
 void setup() {
   // Enable global logging
   logger.LogGlobalOn();
@@ -96,6 +130,28 @@ void setup() {
   logger.SetLogLevel(S_SCD30, LOG_INFO);
   logger.SetLogLevel(S_PUBLISHER, LOG_ERROR);
   logger.SetLogLevel(S_WIFI, LOG_INFO);
+
+  /* OLED initialization and declarations */
+  ssd1306_128x64_i2c_init();
+
+  ssd1306_clearScreen();
+  ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+  ssd1306_printFixed(35, 1, "SCD30 data", STYLE_NORMAL);
+  ssd1306_printFixed(20, 16, "M. van den Burg", STYLE_NORMAL);
+  ssd1306_printFixed(30, 32, "januari 2021", STYLE_NORMAL);
+
+  delay(2000);
+
+  ssd1306_clearScreen();
+  ssd1306_drawLine(0, 10, ssd1306_displayWidth() - 1, 10);
+
+  // Custom sprite defined in graphics.h
+  wifisprite = ssd1306_createSprite(120, 0, sizeof(wifiImage), wifiImage);
+
+  // MQTT connection and time placeholders
+  ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+  ssd1306_printFixed(0, 0, "--:--:--", STYLE_NORMAL);
+  ssd1306_printFixed(80, 0, "[----]", STYLE_NORMAL);
 
   // Connect to WiFi
   wifi_connect();
@@ -111,6 +167,11 @@ void setup() {
   scd30.initialize();
 
 
+  // NTP date and time
+  logger.Log(S_WIFI, LOG_TRACE, "Waiting for NTP tine sync.\n");
+  waitForSync();
+  AMS.setLocation("Europe/Amsterdam");
+
 } // setup
 
 
@@ -118,6 +179,14 @@ void setup() {
 
 void loop() {
 
+  // Display HH:mm:ss time in display. Update every second, faster not needed.
+  if ( abs(millis() - app.previous_timestamp) >= SECOND_TO_MILLIS ) {
+    app.previous_timestamp = millis();
+    AMS.dateTime("H:i:s").toCharArray(app.timeCast, sizeof(app.timeCast));  // cast String to char
+    ssd1306_printFixed(0, 0, app.timeCast, STYLE_NORMAL);
+  }
+
+  
   // Read sensor values, store in JSON, place on FIFO
   if (millis() - app.previous_poll > app.pollTime_millis) { // interrupt is overkill
     logger.Log(S_SCD30, LOG_TRACE, "Poller fired.\n");
@@ -133,6 +202,7 @@ void loop() {
 /* Initialize WiFi and get the time from NTP */
 void wifi_connect() {
   char buffer[28];
+  uint8_t spriteOn = 0;
 
   logger.Log(S_WIFI, LOG_TRACE, "\nConnecting to WiFi\n");
 
@@ -143,8 +213,19 @@ void wifi_connect() {
 
   while (WiFi.status() != WL_CONNECTED) {
     logger.Log(S_WIFI, LOG_TRACE, ".");
+
+    if (spriteOn) {
+      spriteOn = 0;
+      wifisprite.erase();
+    }
+    else {
+      spriteOn = 1;
+      wifisprite.draw();
+    }
     delay(200);
   }
+
+  wifisprite.draw();  // sprite on
   logger.Log(S_WIFI, LOG_INFO, "\nWiFi connected\n");
 
   sprintf(buffer, "IP address: %s\n", WiFi.localIP().toString().c_str());
@@ -166,6 +247,8 @@ int mqttConnect() {
     return 1;
   }
   else {
+    ssd1306_printFixed(80, 0, "[----]", STYLE_NORMAL);
+
     sprintf(buffer, "Not connected to MQTT. Reason: %d\n", client.state());
     logger.Log(S_WIFI, LOG_WARN, buffer);
 
@@ -174,12 +257,16 @@ int mqttConnect() {
     if (client.connect(CONNECTION_ID, CLIENT_NAME, CLIENT_PASSWORD)) {
       logger.Log(S_WIFI, LOG_INFO, "Connected to MQTT.\n");
 
+      ssd1306_printFixed(80, 0, "[MQTT]", STYLE_NORMAL);
+
       // Once connected, publish an announcement
       client.publish(STATUS_TOPIC, "CO2 sensor has connected");
       return 1;
     }
     else {
+      ssd1306_printFixed(80, 0, "[XXXX]", STYLE_NORMAL);
       sprintf(buffer, "Failed to connected to MQTT. Reason: %d\n", client.state());
+      client.publish(STATUS_TOPIC, buffer);
       logger.Log(S_WIFI, LOG_ERROR, buffer);
       return 0;
     }
@@ -212,6 +299,14 @@ void readSensor() {
     logger.Log(S_SCD30, LOG_TRACE, buffer);
     sprintf(buffer, "Humidity: %.0f %%\n", cur_humidity);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
+
+    // Print to display
+    sprintf(buffer, "CO2: %d ppm", cur_co2);
+    ssd1306_printFixed(0, 20, buffer, STYLE_NORMAL);
+    sprintf(buffer, "Temperature: %.1f C", cur_temp);
+    ssd1306_printFixed(0, 35, buffer, STYLE_NORMAL);
+    sprintf(buffer, "Humidity: %.0f %%", cur_humidity);
+    ssd1306_printFixed(0, 50, buffer, STYLE_NORMAL);
 
     /* We need to publish two objects because of the hardware settings in the Domoticz version:
       - CO2
