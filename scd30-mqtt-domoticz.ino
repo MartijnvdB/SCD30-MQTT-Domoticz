@@ -38,11 +38,12 @@
   SDK headers are in C, include them extern or else they will throw an error compiling/linking
   all SDK .c files required can be added between the { }
 */
-#ifdef ESP8266
+#ifdef ESP82660
 extern "C" {
 #include "user_interface.h"
 }
 #endif
+
 
 
 // Subfolder structure requires Arduino IDE 1.6.10 or up
@@ -98,10 +99,11 @@ struct appConfig {
   // For NTP time
   uint32_t previous_timestamp = millis();
   char timeCast[9];
-
-
 } app;
 
+
+// Hardware settings. See hardware.h.
+sSCD30 sensorhardware;
 
 
 // Instantiate a Logging object. Logger writes to the serial console
@@ -165,6 +167,7 @@ void setup() {
   logger.Log(S_SCD30, LOG_TRACE, "Initializing Wire and SCD30 sensor.\n");
   Wire.begin();
   scd30.initialize();
+  scd30.setTemperatureOffset(sensorhardware.scd30_temp_offset); // SCD30 temp reads high, compensate.
 
 
   // NTP date and time
@@ -186,7 +189,7 @@ void loop() {
     ssd1306_printFixed(0, 0, app.timeCast, STYLE_NORMAL);
   }
 
-  
+
   // Read sensor values, store in JSON, place on FIFO
   if (millis() - app.previous_poll > app.pollTime_millis) { // interrupt is overkill
     logger.Log(S_SCD30, LOG_TRACE, "Poller fired.\n");
