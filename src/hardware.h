@@ -5,14 +5,6 @@
 */
 
 
-// MCU pin definitions
-struct Esp8266 {
-  const uint8_t onboard_LED;
-};
-
-
-// Electronics outside of the ESP8266
-struct Hardware {
-  const uint8_t CLK;    // SCD30 I2C CLK
-  const uint8_t DIO;    // SCD30 I2C DIO
+struct sSCD30 {
+   int16_t scd30_temp_offset = 200;	// in steps of 0.01 degC, only positive numbers allowed
 };
