@@ -8,4 +8,4 @@ The ESP8266 reads environmental data (CO2 concentration, relative humidity, temp
 
 The data is also displayed on a tiny OLED, together with WiFi and MQTT connection status, and time (from NTP).
 
-![breadboard snapshot](src/snapshot.jpg)
+![breadboard snapshot](images/snapshot.jpg)
