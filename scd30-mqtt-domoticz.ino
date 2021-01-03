@@ -38,7 +38,7 @@
   SDK headers are in C, include them extern or else they will throw an error compiling/linking
   all SDK .c files required can be added between the { }
 */
-#ifdef ESP82660
+#ifdef ESP8266
 extern "C" {
 #include "user_interface.h"
 }
