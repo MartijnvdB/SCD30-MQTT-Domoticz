@@ -53,7 +53,8 @@ extern "C" {
 #include "src/Logging/Logging.h"
 
 
-#include "SCD30.h"  // Seeedstudio library
+#include <SparkFun_SCD30_Arduino_Library.h> // https://github.com/sparkfun/SparkFun_SCD30_Arduino_Library
+
 #include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 
@@ -119,6 +120,9 @@ PubSubClient client(espClient);
 // Set the NTP timezone
 Timezone AMS;
 
+// SCD30 sensor
+SCD30 airSensor;
+
 
 // For OLED display
 SPRITE wifisprite;
@@ -166,8 +170,15 @@ void setup() {
   // Initialize SCD30
   logger.Log(S_SCD30, LOG_TRACE, "Initializing Wire and SCD30 sensor.\n");
   Wire.begin();
-  scd30.initialize();
-  scd30.setTemperatureOffset(sensorhardware.scd30_temp_offset); // SCD30 temp reads high, compensate.
+  if (airSensor.begin() == false) {
+    logger.Log(S_SCD30, LOG_ERROR, "Initializing of SCD30 sensor failed.\n");
+    while (1) {
+      ;
+    } // keep looping
+  }
+  // Fall through
+  airSensor.setTemperatureOffset(sensorhardware.temp_offset); // temperature reading is high
+  ssd1306_printFixed(0, 35, "Waiting for data...", STYLE_NORMAL);
 
 
   // NTP date and time
@@ -281,20 +292,18 @@ int mqttConnect() {
 void readSensor() {
   logger.Log(S_SCD30, LOG_TRACE, "Function readSensor() entered.\n");
 
-  float result[3] = {0};
   char buffer[60];
   char jsonoutput[128];
   DynamicJsonDocument thum(64);
   DynamicJsonDocument carb(48);
 
-  if (scd30.isAvailable()) {
+  if (airSensor.dataAvailable()) {
     logger.Log(S_SCD30, LOG_TRACE, "SCD30 sensor is available.\n");
-    scd30.getCarbonDioxideConcentration(result);
 
     // Store values after rounding off to one decimal
-    uint16_t cur_co2 = (uint16_t)result[0];
-    float cur_temp = round(result[1]);
-    float cur_humidity = round(result[2]);
+    uint16_t cur_co2 = airSensor.getCO2();
+    float cur_temp = round(airSensor.getTemperature());
+    float cur_humidity = round(airSensor.getHumidity());
 
     sprintf(buffer, "CO2 concentration: %d ppm\n", cur_co2);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
