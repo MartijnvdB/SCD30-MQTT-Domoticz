@@ -64,7 +64,7 @@ extern "C" {
 
 // 128x64 OLED library
 // SSD1306 by Alex Dynda, https://github.com/lexus2k/ssd1306
-#include <nano_gfx.h>
+//#include <nano_gfx.h>
 #include <ssd1306.h>
 
 #include <PubSubClient.h>
@@ -142,7 +142,7 @@ void setup() {
 
   ssd1306_clearScreen();
   ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
-  ssd1306_printFixed(35, 1, "SCD30 data", STYLE_NORMAL);
+  ssd1306_printFixed(40, 1, "SCD30 data", STYLE_NORMAL);
   ssd1306_printFixed(20, 16, "M. van den Burg", STYLE_NORMAL);
   ssd1306_printFixed(30, 32, "januari 2021", STYLE_NORMAL);
 
@@ -155,7 +155,6 @@ void setup() {
   wifisprite = ssd1306_createSprite(120, 0, sizeof(wifiImage), wifiImage);
 
   // MQTT connection and time placeholders
-  ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
   ssd1306_printFixed(0, 0, "--:--:--", STYLE_NORMAL);
   ssd1306_printFixed(80, 0, "[----]", STYLE_NORMAL);
 
@@ -293,6 +292,8 @@ void readSensor() {
   logger.Log(S_SCD30, LOG_TRACE, "Function readSensor() entered.\n");
 
   char buffer[60];
+  buffer[0] = '\0'; // make array appear empty
+  
   char jsonoutput[128];
   DynamicJsonDocument thum(64);
   DynamicJsonDocument carb(48);
@@ -317,7 +318,7 @@ void readSensor() {
     ssd1306_printFixed(0, 20, buffer, STYLE_NORMAL);
     sprintf(buffer, "Temperature: %.1f C", cur_temp);
     ssd1306_printFixed(0, 35, buffer, STYLE_NORMAL);
-    sprintf(buffer, "Humidity: %.0f %%", cur_humidity);
+    sprintf(buffer, "Humidity: %.0f%%", cur_humidity);
     ssd1306_printFixed(0, 50, buffer, STYLE_NORMAL);
 
     /* We need to publish two objects because of the hardware settings in the Domoticz version:
