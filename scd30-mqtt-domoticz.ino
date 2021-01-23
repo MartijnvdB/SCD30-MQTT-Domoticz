@@ -177,7 +177,7 @@ void setup() {
   }
   // Fall through
   airSensor.setTemperatureOffset(sensorhardware.temp_offset); // temperature reading is high
-  ssd1306_printFixed(0, 34, "Waiting for data...", STYLE_NORMAL);
+  ssd1306_printFixed(0, 34, "Waiting for data", STYLE_NORMAL);
 
 
   // NTP date and time
@@ -199,8 +199,11 @@ void loop() {
     ssd1306_printFixed(0, 0, app.timeCast, STYLE_NORMAL);
   }
 
+  /* To do: display MQTT status */
 
-  // Read sensor values, store in JSON, place on FIFO
+  /* To do: display WiFi status */
+
+  // Read and display sensor values
   if (millis() - app.previous_poll > app.pollTime_millis) { // interrupt is overkill
     logger.Log(S_SCD30, LOG_TRACE, "Poller fired.\n");
     app.previous_poll = millis();
@@ -312,18 +315,16 @@ void readSensor() {
     sprintf(buffer, "Humidity: %.0f %%\n", cur_humidity);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
 
-
-
     // Print to display
     ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
-//ssd1306_clearScreen();
-    sprintf(buffer, "CO2: %d ppm", cur_co2);
+
+    sprintf(buffer, "CO2: %d ppm\0", cur_co2);
     ssd1306_printFixed(0, 18, buffer, STYLE_NORMAL);
-memset(buffer, 0, sizeof buffer);
-    sprintf(buffer, "Temp.: %.1f C  ", cur_temp);
+    memset(buffer, 0, sizeof buffer); // clear buffer
+    sprintf(buffer, "Temp.: %.1f C\0", cur_temp);
     ssd1306_printFixed(0, 34, buffer, STYLE_NORMAL);
-memset(buffer, 0, sizeof buffer);
-    sprintf(buffer, "Humidity: %.0f%%", cur_humidity);
+    memset(buffer, 0, sizeof buffer);
+    sprintf(buffer, "Humidity: %.0f%%\0", cur_humidity);
     ssd1306_printFixed(0, 50, buffer, STYLE_NORMAL);
     ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
 
