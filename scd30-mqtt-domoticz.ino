@@ -177,7 +177,7 @@ void setup() {
   }
   // Fall through
   airSensor.setTemperatureOffset(sensorhardware.temp_offset); // temperature reading is high
-  ssd1306_printFixed(0, 35, "Waiting for data...", STYLE_NORMAL);
+  ssd1306_printFixed(0, 34, "Waiting for data...", STYLE_NORMAL);
 
 
   // NTP date and time
@@ -291,8 +291,7 @@ int mqttConnect() {
 void readSensor() {
   logger.Log(S_SCD30, LOG_TRACE, "Function readSensor() entered.\n");
 
-  char buffer[60];
-  buffer[0] = '\0'; // make array appear empty
+  char buffer[20];
   
   char jsonoutput[128];
   DynamicJsonDocument thum(64);
@@ -313,13 +312,21 @@ void readSensor() {
     sprintf(buffer, "Humidity: %.0f %%\n", cur_humidity);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
 
+
+
     // Print to display
+    ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
+//ssd1306_clearScreen();
     sprintf(buffer, "CO2: %d ppm", cur_co2);
-    ssd1306_printFixed(0, 20, buffer, STYLE_NORMAL);
-    sprintf(buffer, "Temperature: %.1f C", cur_temp);
-    ssd1306_printFixed(0, 35, buffer, STYLE_NORMAL);
+    ssd1306_printFixed(0, 18, buffer, STYLE_NORMAL);
+memset(buffer, 0, sizeof buffer);
+    sprintf(buffer, "Temp.: %.1f C  ", cur_temp);
+    ssd1306_printFixed(0, 34, buffer, STYLE_NORMAL);
+memset(buffer, 0, sizeof buffer);
     sprintf(buffer, "Humidity: %.0f%%", cur_humidity);
     ssd1306_printFixed(0, 50, buffer, STYLE_NORMAL);
+    ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+
 
     /* We need to publish two objects because of the hardware settings in the Domoticz version:
       - CO2
