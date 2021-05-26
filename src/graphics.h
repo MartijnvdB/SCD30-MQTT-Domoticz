@@ -10,3 +10,15 @@ const PROGMEM uint8_t wifiImage[8] =
   0B00000000
 };
 
+const PROGMEM uint8_t noWifiImage[8] =
+{
+  0B01000001,
+  0B00100010,
+  0B00010100,
+  0B00001000,
+  0B00010100,
+  0B00100010,
+  0B01000001,
+  0B00000000
+};
+
