@@ -50,6 +50,7 @@ extern "C" {
 #include "src/hardware.h"
 #include "src/credentials.h"
 #include "src/graphics.h"
+#include "src/version.h"
 #include "src/Logging/Logging.h"
 
 
@@ -64,7 +65,7 @@ extern "C" {
 
 // 128x64 OLED library
 // SSD1306 by Alex Dynda, https://github.com/lexus2k/ssd1306
-#include <nano_gfx.h>
+//#include <nano_gfx.h>
 #include <ssd1306.h>
 
 #include <PubSubClient.h>
@@ -142,7 +143,8 @@ void setup() {
 
   ssd1306_clearScreen();
   ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
-  ssd1306_printFixed(35, 1, "SCD30 data", STYLE_NORMAL);
+  ssd1306_printFixed(10, 1, "SCD30 data", STYLE_NORMAL);
+  ssd1306_printFixed(90, 1, SKETCH_VERSION, STYLE_NORMAL);
   ssd1306_printFixed(20, 16, "M. van den Burg", STYLE_NORMAL);
   ssd1306_printFixed(30, 32, "januari 2021", STYLE_NORMAL);
 
@@ -155,7 +157,6 @@ void setup() {
   wifisprite = ssd1306_createSprite(120, 0, sizeof(wifiImage), wifiImage);
 
   // MQTT connection and time placeholders
-  ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
   ssd1306_printFixed(0, 0, "--:--:--", STYLE_NORMAL);
   ssd1306_printFixed(80, 0, "[----]", STYLE_NORMAL);
 
@@ -178,7 +179,7 @@ void setup() {
   }
   // Fall through
   airSensor.setTemperatureOffset(sensorhardware.temp_offset); // temperature reading is high
-  ssd1306_printFixed(0, 35, "Waiting for data...", STYLE_NORMAL);
+  ssd1306_printFixed(0, 34, "Waiting for data", STYLE_NORMAL);
 
 
   // NTP date and time
@@ -200,8 +201,11 @@ void loop() {
     ssd1306_printFixed(0, 0, app.timeCast, STYLE_NORMAL);
   }
 
+  /* To do: display MQTT status */
 
-  // Read sensor values, store in JSON, place on FIFO
+  /* To do: display WiFi status */
+
+  // Read and display sensor values
   if (millis() - app.previous_poll > app.pollTime_millis) { // interrupt is overkill
     logger.Log(S_SCD30, LOG_TRACE, "Poller fired.\n");
     app.previous_poll = millis();
@@ -292,7 +296,8 @@ int mqttConnect() {
 void readSensor() {
   logger.Log(S_SCD30, LOG_TRACE, "Function readSensor() entered.\n");
 
-  char buffer[60];
+  char buffer[20];
+  
   char jsonoutput[128];
   DynamicJsonDocument thum(64);
   DynamicJsonDocument carb(48);
@@ -313,12 +318,18 @@ void readSensor() {
     logger.Log(S_SCD30, LOG_TRACE, buffer);
 
     // Print to display
-    sprintf(buffer, "CO2: %d ppm", cur_co2);
-    ssd1306_printFixed(0, 20, buffer, STYLE_NORMAL);
-    sprintf(buffer, "Temperature: %.1f C", cur_temp);
-    ssd1306_printFixed(0, 35, buffer, STYLE_NORMAL);
-    sprintf(buffer, "Humidity: %.0f %%", cur_humidity);
+    ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
+
+    sprintf(buffer, "CO2: %d ppm\0", cur_co2);
+    ssd1306_printFixed(0, 18, buffer, STYLE_NORMAL);
+    memset(buffer, 0, sizeof buffer); // clear buffer
+    sprintf(buffer, "Temp.: %.1f C\0", cur_temp);
+    ssd1306_printFixed(0, 34, buffer, STYLE_NORMAL);
+    memset(buffer, 0, sizeof buffer);
+    sprintf(buffer, "Humidity: %.0f%%\0", cur_humidity);
     ssd1306_printFixed(0, 50, buffer, STYLE_NORMAL);
+    ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+
 
     /* We need to publish two objects because of the hardware settings in the Domoticz version:
       - CO2
