@@ -6,6 +6,6 @@
 
 
 struct sSCD30 {
-   int16_t temp_offset = 2;
+   int16_t temp_offset = 3;
 };
 
