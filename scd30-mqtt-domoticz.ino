@@ -50,6 +50,7 @@ extern "C" {
 #include "src/hardware.h"
 #include "src/credentials.h"
 #include "src/graphics.h"
+#include "src/version.h"
 #include "src/Logging/Logging.h"
 
 
@@ -142,7 +143,8 @@ void setup() {
 
   ssd1306_clearScreen();
   ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
-  ssd1306_printFixed(40, 1, "SCD30 data", STYLE_NORMAL);
+  ssd1306_printFixed(10, 1, "SCD30 data", STYLE_NORMAL);
+  ssd1306_printFixed(90, 1, SKETCH_VERSION, STYLE_NORMAL);
   ssd1306_printFixed(20, 16, "M. van den Burg", STYLE_NORMAL);
   ssd1306_printFixed(30, 32, "januari 2021", STYLE_NORMAL);
 
