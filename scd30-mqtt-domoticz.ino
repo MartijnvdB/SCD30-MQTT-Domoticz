@@ -11,7 +11,8 @@
                 - MQTT connection status
                 - WiFi connection status
                 - NTP time
-                The display is first built in a buffer and then displayed.
+                The display is first built in a buffer and then displayed. But does not use callbacks. See library
+                references, below.
 
               Requires that the applications has some knowledge of the device ID in Domoticz, this is configured
               in credentials.h.
@@ -40,11 +41,11 @@
   SDK headers are in C, include them extern or else they will throw an error compiling/linking
   all SDK .c files required can be added between the { }
 */
-#ifdef ESP8266
-extern "C" {
-#include "user_interface.h"
-}
-#endif
+//#ifdef ESP8266
+//extern "C" {
+//#include "user_interface.h"
+//}
+//#endif
 
 
 
@@ -68,7 +69,7 @@ extern "C" {
 // 128x64 OLED library
 // SSD1306 by Alex Dynda, https://github.com/lexus2k/ssd1306
 #include <ssd1306.h>
-#include <nano_engine.h>  // for double buffering
+#include <nano_engine.h>  // https://lexus2k.github.io/ssd1306/md_nano_engine__r_e_a_d_m_e.html
 
 
 #include <PubSubClient.h>
@@ -95,22 +96,24 @@ extern "C" {
 // Struct to contain all application 'global' variables.
 struct appConfig {
   const uint32_t pollTime_millis = 10000; // poll interval SCD30 sensor
-  uint32_t previous_poll = 0;             // most recent poll time
+  uint32_t prev_poll = 0;             // most recent poll time
 
   // Current measurements from the SCD30
   uint16_t cur_co2;
-  float cur_temp;
+  float cur_temperature;
   float cur_humidity;
 
   // These are used to not send data when the values haven't changed.
-  uint16_t previous_co2 = 0;
-  float previous_humidity = 0.0;
-  float previous_temperature = 0.0;
+  uint16_t prev_co2 = 0;
+  float prev_humidity = 0.0;
+  float prev_temperature = 0.0;
 
   // For NTP time
-  uint32_t previous_timestamp = millis();
+  uint32_t prev_timestamp = millis();
   char timeCast[9] = {};
 
+  // Boolean for screen refresh
+  bool doRefresh = true;
 } app;
 
 
@@ -121,13 +124,10 @@ sSCD30 sensorhardware;
 const int canvasWidth = 128;
 const int canvasHeight = 64;
 uint8_t canvasData[canvasWidth * (canvasHeight / 8)];
-NanoCanvas1 canvas(canvasWidth, canvasHeight, canvasData);
-
-
+NanoCanvas1 canvas(canvasWidth, canvasHeight, canvasData);  // https://lexus2k.github.io/ssd1306/class_nano_canvas1.html
 
 // Instantiate a Logging object. Logger writes to the serial console
 myns::Logging logger;
-
 
 
 // For MQTT:
@@ -148,7 +148,7 @@ void setup() {
 
   // Set log levels for individual subsystems. Logging is to the IDE serial monitor.
   logger.SetLogLevel(S_SCD30, LOG_INFO);
-  logger.SetLogLevel(S_PUBLISHER, LOG_ERROR);
+  logger.SetLogLevel(S_PUBLISHER, LOG_INFO);
   logger.SetLogLevel(S_WIFI, LOG_INFO);
 
   /* OLED initialization and declarations */
@@ -166,26 +166,22 @@ void setup() {
   delay(2000);
   canvas.clear();
 
-  displayAll();
 
   // Connect to WiFi
   wifi_connect();
-  displayAll();
 
   // Configure MQTT connection and connect.
   client.setServer(MQTT_SERVER, MQTT_PORT);
   mqttConnect();
-  displayAll();
 
 
   // Initialize SCD30
   logger.Log(S_SCD30, LOG_TRACE, "Initializing Wire and SCD30 sensor.\n");
   Wire.begin();
-  if (airSensor.begin() == false) {
+  while (airSensor.begin() == false) {
     logger.Log(S_SCD30, LOG_ERROR, "Initializing of SCD30 sensor failed.\n");
-    while (1) {
-      ;
-    } // keep looping
+    displayAll();
+    delay(1000);
   }
 
   // Fall through
@@ -204,24 +200,31 @@ void setup() {
 void loop() {
 
   // Display HH:mm:ss time in display. Update every second, faster not needed.
-  if ( abs(millis() - app.previous_timestamp) >= SECOND_TO_MILLIS ) {
-    app.previous_timestamp = millis();
+  if ( (millis() - app.prev_timestamp) >= SECOND_TO_MILLIS ) {
+    app.prev_timestamp = millis();
     AMS.dateTime("H:i:s").toCharArray(app.timeCast, sizeof(app.timeCast));  // cast String to char
+    app.doRefresh = true;
   }
 
   // Read and display sensor values
-  if (millis() - app.previous_poll > app.pollTime_millis) { // interrupt would be overkill
+  if (millis() - app.prev_poll > app.pollTime_millis) { // interrupt would be overkill
     logger.Log(S_SCD30, LOG_TRACE, "Poller fired.\n");
-    app.previous_poll = millis();
+    app.prev_poll = millis();
 
     if (readSensor()) {
       publishMeasurements();
+      app.doRefresh = true;
     }
   }
 
 
-  displayAll();
-  
+  // Refresh display when data has changed
+  if (app.doRefresh) {
+    displayAll();
+    app.doRefresh = false;
+  }
+
+  // Give control to MCU for WiFi stuff
   yield();
 
 } // loop
@@ -229,7 +232,7 @@ void loop() {
 
 /* Initialize WiFi and get the time from NTP */
 void wifi_connect() {
-  char buffer[28];
+  char buffer[28] = {};
 
   logger.Log(S_WIFI, LOG_TRACE, "\nConnecting to WiFi\n");
 
@@ -241,6 +244,7 @@ void wifi_connect() {
   while (WiFi.status() != WL_CONNECTED) {
     logger.Log(S_WIFI, LOG_TRACE, ".");
     delay(200);
+    displayAll();
   }
 
   logger.Log(S_WIFI, LOG_INFO, "\nWiFi connected\n");
@@ -255,7 +259,7 @@ void wifi_connect() {
   Returns 1 for success, 0 for failure.
 */
 int mqttConnect() {
-  char buffer[40];
+  char buffer[40] = {};
 
   // Nothing to do if we're still connected.
   if (client.connected()) {
@@ -291,7 +295,7 @@ int mqttConnect() {
    Build and display the main canvas
 */
 void displayAll() {
-  char buffer[20];
+  char buffer[20] = {};
 
   canvas.clear();
 
@@ -315,7 +319,10 @@ void displayAll() {
     canvas.drawBitmap1(120, 0, sizeof(wifiImage), sizeof(wifiImage), wifiImage);
   }
   else {
-    canvas.drawBitmap1(120, 0, sizeof(noWifiImage), sizeof(noWifiImage), noWifiImage);
+    // Create a blink effect while there's no WiFi
+    if ( (millis() % 1000) < 500) {
+      canvas.drawBitmap1(120, 0, sizeof(noWifiImage), sizeof(noWifiImage), noWifiImage);
+    }
   }
   // measurements
   if (app.cur_co2 > 0) {
@@ -325,7 +332,7 @@ void displayAll() {
     canvas.printFixed(0, 13, buffer, STYLE_NORMAL);
     canvas.printFixed(16, 15, "2", STYLE_NORMAL);  // subscript
     memset(buffer, 0, sizeof buffer); // clear buffer
-    sprintf(buffer, "Temp.: %.1f C\0", app.cur_temp);
+    sprintf(buffer, "Temp.: %.1f C\0", app.cur_temperature);
     canvas.printFixed(0, 29, buffer, STYLE_NORMAL);
     memset(buffer, 0, sizeof buffer);
     sprintf(buffer, "Humidity: %.0f%%\0", app.cur_humidity);
@@ -334,7 +341,7 @@ void displayAll() {
     ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
   }
   else {
-    ssd1306_printFixed(0, 34, "Waiting for data", STYLE_NORMAL);
+    canvas.printFixed(16, 34, "Waiting for data", STYLE_NORMAL);
   }
 
   canvas.blt(0, 0);
@@ -349,21 +356,21 @@ void displayAll() {
    1: data available
 */
 int readSensor() {
-  logger.Log(S_SCD30, LOG_TRACE, "Function readSensor() entered.\n");
+  logger.Log(S_SCD30, LOG_INFO, "Function readSensor() entered.\n");
 
-  char buffer[20];
+  char buffer[20] = {};
 
   if (airSensor.dataAvailable()) {
     logger.Log(S_SCD30, LOG_TRACE, "SCD30 sensor is available.\n");
 
     // Store values after rounding off to one decimal
     app.cur_co2 = airSensor.getCO2();
-    app.cur_temp = round(airSensor.getTemperature());
-    app.cur_humidity = round(airSensor.getHumidity());
+    app.cur_temperature = roundOff(airSensor.getTemperature());
+    app.cur_humidity = roundOff(airSensor.getHumidity());
 
     sprintf(buffer, "CO2 concentration: %d ppm\n", app.cur_co2);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
-    sprintf(buffer, "Temperature: %.1f ℃\n", app.cur_temp);
+    sprintf(buffer, "Temperature: %.1f ℃\n", app.cur_temperature);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
     sprintf(buffer, "Humidity: %.0f %%\n", app.cur_humidity);
     logger.Log(S_SCD30, LOG_TRACE, buffer);
@@ -383,12 +390,12 @@ int readSensor() {
    Publish measured values to MQTT
 */
 void publishMeasurements() {
-  logger.Log(S_SCD30, LOG_TRACE, "Function publishMeasurements() entered.\n");
+  logger.Log(S_PUBLISHER, LOG_INFO, "Function publishMeasurements() entered.\n");
 
-  char buffer[20];
+  char buffer[12] = {};
 
   char jsonoutput[128];
-  DynamicJsonDocument thum(64);
+  DynamicJsonDocument thum(80);
   DynamicJsonDocument carb(48);
 
 
@@ -397,43 +404,47 @@ void publishMeasurements() {
     - temperature and humidity
   */
   // Check if data hase changed since last
-  if ( app.cur_temp != app.previous_temperature || app.cur_humidity != app.previous_humidity) {
-    app.previous_temperature = app.cur_temp;
-    app.previous_humidity = app.cur_humidity;
+  if ( app.cur_temperature != app.prev_temperature || app.cur_humidity != app.prev_humidity) {
+    app.prev_temperature = app.cur_temperature;
+    app.prev_humidity = app.cur_humidity;
 
     thum["name"] = "SCD30 Temp en Vocht";
     thum["idx"] = IDX_DEVICE_TEMPHUM;
     thum["nvalue"] = 0;
-    sprintf(buffer, "%.1f;%.0f;1", app.cur_temp, app.cur_humidity);
-    thum["svalue"].set(buffer); // does not work with '=' assignment...
+
+    sprintf(buffer, "%.1f;%.0f;1", app.cur_temperature, app.cur_humidity);
+
+    if (! thum["svalue"].set(buffer) ) {
+      logger.Log(S_PUBLISHER, LOG_ERROR, "Not enough space for buffer assignment\n");
+    }
     serializeJson(thum, jsonoutput);
 
-    logger.Log(S_SCD30, LOG_TRACE, jsonoutput);
-    logger.Log(S_SCD30, LOG_TRACE, "\n");
+    logger.Log(S_PUBLISHER, LOG_TRACE, jsonoutput);
+    logger.Log(S_PUBLISHER, LOG_TRACE, "\n");
 
     publishData(jsonoutput);
   }
   else {
-    logger.Log(S_SCD30, LOG_TRACE, "Temperature and humidity have not changed since last update. Not sending to Domoticz.\n");
+    logger.Log(S_PUBLISHER, LOG_TRACE, "Temperature and humidity have not changed since last update. Not sending to Domoticz.\n");
   }
 
-  if (app.cur_co2 != app.previous_co2) {
-    app.previous_co2 = app.cur_co2;
+  if (app.cur_co2 != app.prev_co2) {
+    app.prev_co2 = app.cur_co2;
     carb["name"] = "SCD30 CO2";
     carb["idx"] = IDX_DEVICE_CO2;
     carb["nvalue"] = app.cur_co2;
     serializeJson(carb, jsonoutput);
 
-    logger.Log(S_SCD30, LOG_TRACE, jsonoutput);
-    logger.Log(S_SCD30, LOG_TRACE, "\n");
+    logger.Log(S_PUBLISHER, LOG_TRACE, jsonoutput);
+    logger.Log(S_PUBLISHER, LOG_TRACE, "\n");
 
     publishData(jsonoutput);
   }
   else {
-    logger.Log(S_SCD30, LOG_TRACE, "CO2 concentration has not changed since last update. Not sending to Domoticz.\n");
+    logger.Log(S_PUBLISHER, LOG_TRACE, "CO2 concentration has not changed since last update. Not sending to Domoticz.\n");
   }
 
-  logger.Log(S_SCD30, LOG_TRACE, "Done reading SCD30 sensor.\n\n");
+  logger.Log(S_PUBLISHER, LOG_TRACE, "Done reading SCD30 sensor.\n\n");
 
 } // publishMeasurements
 
@@ -466,9 +477,9 @@ void publishData(char* msg) {
    then type cast to int so value is 377
    then divided by 10 so the value converted into 37.7
 */
-float round(float var) {
+float roundOff(float var) {
   float value = (int)(var * 10 + 0.5);
-  return (float)value / 10;
+  return (float)(value / 10);
 }
 
 
