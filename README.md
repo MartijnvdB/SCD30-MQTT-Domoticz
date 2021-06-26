@@ -8,4 +8,6 @@ The ESP8266 reads environmental data (CO2 concentration, relative humidity, temp
 
 The data is also displayed on a tiny OLED, together with WiFi and MQTT connection status, and time (from NTP).
 
+Using an external switch between GPIO12 and GND, the SCD30's auto self calibration can be switched on and off.
+
 ![breadboard snapshot](images/snapshot.jpg)
