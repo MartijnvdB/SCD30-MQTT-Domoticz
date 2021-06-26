@@ -121,9 +121,11 @@ struct appConfig {
   // For NTP time
   uint32_t prev_timestamp = millis();
   char timeCast[9] = {};
+  char autoCalStart[13] = {};
 
   // Boolean for screen refresh
   bool doRefresh = true;
+
 } app;
 
 
@@ -176,7 +178,7 @@ void setup() {
   canvas.printFixed(86, 1, SKETCH_VERSION, STYLE_NORMAL);
   canvas.drawRect(0, 16, 127, 63);
   canvas.printFixed(19, 26, "M. van den Burg", STYLE_NORMAL);
-  canvas.printFixed(40, 42, "May 2021", STYLE_NORMAL);
+  canvas.printFixed(40, 42, "Jun 2021", STYLE_NORMAL);
   canvas.blt(0, 0);
   delay(2000);
   canvas.clear();
@@ -201,14 +203,9 @@ void setup() {
 
   // Fall through
   airSensor.setTemperatureOffset(sensorhardware.temp_offset); // temperature reading is high
-  if (digitalRead(myboard.set_auto_calibrate) == LOW) {
-    airSensor.setAutoSelfCalibration(true);
-    //    digitalWrite(myboard.onboard_LED, LOW); // negative logic
-  }
-  else {
-    airSensor.setAutoSelfCalibration(false);
-  }
 
+  // Disable auto cal
+  airSensor.setAutoSelfCalibration(false);
 
   // NTP date and time
   logger.Log(S_WIFI, LOG_TRACE, "Waiting for NTP tine sync.\n");
@@ -222,8 +219,24 @@ void setup() {
 
 void loop() {
 
-  // Display HH:mm:ss time in display. Update every second, faster not needed.
+
+  /*
+     Stuff to do every second because faster is nt necessary.
+     Display HH:mm:ss time in display.
+     Auto calibration status
+  */
   if ( (millis() - app.prev_timestamp) >= SECOND_TO_MILLIS ) {
+    // Detect when auto calibration is switched on
+    if (digitalRead(myboard.set_auto_calibrate) == LOW) {
+      if (airSensor.getAutoSelfCalibration() == false) {
+        airSensor.setAutoSelfCalibration(true);
+        AMS.dateTime("d M H:i").toCharArray(app.autoCalStart, sizeof(app.autoCalStart)); // used in autocal mode display
+      }
+    }
+    else {
+      airSensor.setAutoSelfCalibration(false);
+    }
+
     app.prev_timestamp = millis();
     AMS.dateTime("H:i:s").toCharArray(app.timeCast, sizeof(app.timeCast));  // cast String to char
     app.doRefresh = true;
@@ -353,6 +366,7 @@ void displayAll() {
   if (app.cur_co2 > 0) {
     ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
 
+
     sprintf(buffer, "CO : %d ppm\0", app.cur_co2);
     canvas.printFixed(0, 13, buffer, STYLE_NORMAL);
     canvas.printFixed(16, 15, "2", STYLE_NORMAL);  // subscript
@@ -364,11 +378,15 @@ void displayAll() {
       memset(buffer, 0, sizeof buffer);
       sprintf(buffer, "Humidity: %.0f%%\0", app.cur_humidity);
       canvas.printFixed(0, 45, buffer, STYLE_NORMAL);
+
     }
     else {
       ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
-      sprintf(buffer, "Auto cal. on mode ON");
-      canvas.printFixed(0, 31, buffer, STYLE_NORMAL);
+      sprintf(buffer, "Auto cal. mode ON");
+      canvas.printFixed(0, 36, buffer, STYLE_NORMAL);
+      sprintf(buffer, "Started %s", app.autoCalStart);
+      canvas.printFixed(0, 45, buffer, STYLE_NORMAL);
+
       ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
     }
 
