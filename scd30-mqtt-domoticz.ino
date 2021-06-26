@@ -31,7 +31,9 @@
    Author:    Martijn van den Burg
    Device:    ESP8266
    Date:      Dec 2020/Jan 2021
-   Changes:   1.1.0, display buffer for SSD1306 implemented
+   Changes:   1.1.0   display buffer for SSD1306 implemented
+              1.2.0   self calibration enabled using external switch
+
 */
 
 
@@ -92,6 +94,14 @@
 
 
 
+/*
+   ESP8266 pin definitions. See hardware.h.
+*/
+Mcu myboard = {
+  16,     // on board LED, GPIO2
+  12      // D6, GPIO12
+};
+
 
 // Struct to contain all application 'global' variables.
 struct appConfig {
@@ -111,9 +121,11 @@ struct appConfig {
   // For NTP time
   uint32_t prev_timestamp = millis();
   char timeCast[9] = {};
+  char autoCalStart[13] = {};
 
   // Boolean for screen refresh
   bool doRefresh = true;
+
 } app;
 
 
@@ -143,6 +155,11 @@ SCD30 airSensor;
 
 
 void setup() {
+  pinMode(myboard.set_auto_calibrate, INPUT_PULLUP);
+  pinMode(myboard.onboard_LED, OUTPUT);
+
+  digitalWrite(myboard.onboard_LED, HIGH);  // negative logic
+
   // Enable global logging
   logger.LogGlobalOn();
 
@@ -161,7 +178,7 @@ void setup() {
   canvas.printFixed(86, 1, SKETCH_VERSION, STYLE_NORMAL);
   canvas.drawRect(0, 16, 127, 63);
   canvas.printFixed(19, 26, "M. van den Burg", STYLE_NORMAL);
-  canvas.printFixed(40, 42, "May 2021", STYLE_NORMAL);
+  canvas.printFixed(40, 42, "Jun 2021", STYLE_NORMAL);
   canvas.blt(0, 0);
   delay(2000);
   canvas.clear();
@@ -187,6 +204,9 @@ void setup() {
   // Fall through
   airSensor.setTemperatureOffset(sensorhardware.temp_offset); // temperature reading is high
 
+  // Disable auto cal
+  airSensor.setAutoSelfCalibration(false);
+
   // NTP date and time
   logger.Log(S_WIFI, LOG_TRACE, "Waiting for NTP tine sync.\n");
   waitForSync();
@@ -199,8 +219,24 @@ void setup() {
 
 void loop() {
 
-  // Display HH:mm:ss time in display. Update every second, faster not needed.
+
+  /*
+     Stuff to do every second because faster is nt necessary.
+     Display HH:mm:ss time in display.
+     Auto calibration status
+  */
   if ( (millis() - app.prev_timestamp) >= SECOND_TO_MILLIS ) {
+    // Detect when auto calibration is switched on
+    if (digitalRead(myboard.set_auto_calibrate) == LOW) {
+      if (airSensor.getAutoSelfCalibration() == false) {
+        airSensor.setAutoSelfCalibration(true);
+        AMS.dateTime("d M H:i").toCharArray(app.autoCalStart, sizeof(app.autoCalStart)); // used in autocal mode display
+      }
+    }
+    else {
+      airSensor.setAutoSelfCalibration(false);
+    }
+
     app.prev_timestamp = millis();
     AMS.dateTime("H:i:s").toCharArray(app.timeCast, sizeof(app.timeCast));  // cast String to char
     app.doRefresh = true;
@@ -324,21 +360,38 @@ void displayAll() {
       canvas.drawBitmap1(120, 0, sizeof(noWifiImage), sizeof(noWifiImage), noWifiImage);
     }
   }
+
+
   // measurements
   if (app.cur_co2 > 0) {
     ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
+
 
     sprintf(buffer, "CO : %d ppm\0", app.cur_co2);
     canvas.printFixed(0, 13, buffer, STYLE_NORMAL);
     canvas.printFixed(16, 15, "2", STYLE_NORMAL);  // subscript
     memset(buffer, 0, sizeof buffer); // clear buffer
-    sprintf(buffer, "Temp.: %.1f C\0", app.cur_temperature);
-    canvas.printFixed(0, 29, buffer, STYLE_NORMAL);
-    memset(buffer, 0, sizeof buffer);
-    sprintf(buffer, "Humidity: %.0f%%\0", app.cur_humidity);
-    canvas.printFixed(0, 45, buffer, STYLE_NORMAL);
+
+    if (airSensor.getAutoSelfCalibration() == false) { // not in calibration mode
+      sprintf(buffer, "Temp.: %.1f C\0", app.cur_temperature);
+      canvas.printFixed(0, 29, buffer, STYLE_NORMAL);
+      memset(buffer, 0, sizeof buffer);
+      sprintf(buffer, "Humidity: %.0f%%\0", app.cur_humidity);
+      canvas.printFixed(0, 45, buffer, STYLE_NORMAL);
+
+    }
+    else {
+      ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+      sprintf(buffer, "Auto cal. mode ON");
+      canvas.printFixed(0, 36, buffer, STYLE_NORMAL);
+      sprintf(buffer, "Started %s", app.autoCalStart);
+      canvas.printFixed(0, 45, buffer, STYLE_NORMAL);
+
+      ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
+    }
 
     ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+
   }
   else {
     canvas.printFixed(16, 34, "Waiting for data", STYLE_NORMAL);
