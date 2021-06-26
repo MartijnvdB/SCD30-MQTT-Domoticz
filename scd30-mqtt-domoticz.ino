@@ -31,7 +31,9 @@
    Author:    Martijn van den Burg
    Device:    ESP8266
    Date:      Dec 2020/Jan 2021
-   Changes:   1.1.0, display buffer for SSD1306 implemented
+   Changes:   1.1.0   display buffer for SSD1306 implemented
+              1.2.0   self calibration enabled using external switch
+
 */
 
 
@@ -92,6 +94,14 @@
 
 
 
+/*
+   ESP8266 pin definitions. See hardware.h.
+*/
+Mcu myboard = {
+  16,     // on board LED, GPIO2
+  12      // D6, GPIO12
+};
+
 
 // Struct to contain all application 'global' variables.
 struct appConfig {
@@ -143,6 +153,11 @@ SCD30 airSensor;
 
 
 void setup() {
+  pinMode(myboard.set_auto_calibrate, INPUT_PULLUP);
+  pinMode(myboard.onboard_LED, OUTPUT);
+
+  digitalWrite(myboard.onboard_LED, HIGH);  // negative logic
+
   // Enable global logging
   logger.LogGlobalOn();
 
@@ -186,6 +201,14 @@ void setup() {
 
   // Fall through
   airSensor.setTemperatureOffset(sensorhardware.temp_offset); // temperature reading is high
+  if (digitalRead(myboard.set_auto_calibrate) == LOW) {
+    airSensor.setAutoSelfCalibration(true);
+    //    digitalWrite(myboard.onboard_LED, LOW); // negative logic
+  }
+  else {
+    airSensor.setAutoSelfCalibration(false);
+  }
+
 
   // NTP date and time
   logger.Log(S_WIFI, LOG_TRACE, "Waiting for NTP tine sync.\n");
@@ -324,6 +347,8 @@ void displayAll() {
       canvas.drawBitmap1(120, 0, sizeof(noWifiImage), sizeof(noWifiImage), noWifiImage);
     }
   }
+
+
   // measurements
   if (app.cur_co2 > 0) {
     ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
@@ -332,13 +357,23 @@ void displayAll() {
     canvas.printFixed(0, 13, buffer, STYLE_NORMAL);
     canvas.printFixed(16, 15, "2", STYLE_NORMAL);  // subscript
     memset(buffer, 0, sizeof buffer); // clear buffer
-    sprintf(buffer, "Temp.: %.1f C\0", app.cur_temperature);
-    canvas.printFixed(0, 29, buffer, STYLE_NORMAL);
-    memset(buffer, 0, sizeof buffer);
-    sprintf(buffer, "Humidity: %.0f%%\0", app.cur_humidity);
-    canvas.printFixed(0, 45, buffer, STYLE_NORMAL);
+
+    if (airSensor.getAutoSelfCalibration() == false) { // not in calibration mode
+      sprintf(buffer, "Temp.: %.1f C\0", app.cur_temperature);
+      canvas.printFixed(0, 29, buffer, STYLE_NORMAL);
+      memset(buffer, 0, sizeof buffer);
+      sprintf(buffer, "Humidity: %.0f%%\0", app.cur_humidity);
+      canvas.printFixed(0, 45, buffer, STYLE_NORMAL);
+    }
+    else {
+      ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+      sprintf(buffer, "Auto cal. on mode ON");
+      canvas.printFixed(0, 31, buffer, STYLE_NORMAL);
+      ssd1306_setFixedFont(ssd1306xled_font8x16);   // set big font
+    }
 
     ssd1306_setFixedFont(ssd1306xled_font6x8);  // set small font
+
   }
   else {
     canvas.printFixed(16, 34, "Waiting for data", STYLE_NORMAL);
